@@ -1,12 +1,28 @@
 language: ruby
 sudo: false
+before_install:
+  - gem update --system
+  - gem --version
+  - gem update bundler
 rvm:
   - 2.0.0
   - 2.1
-  - 2.2
+  - 2.2.2
   - 2.3.0
-  - jruby-19mode
+  - jruby-9.0.4.0
   - rbx-2
-env:
-  - RSPEC_VERSION="<2.99"
-  - RSPEC_VERSION="~>3.0
+gemfile:
+  - Gemfile
+  - gemfiles/Gemfile.ruby20.21
+matrix:
+  allow_failures:
+    - rvm: rbx-2
+  exclude:
+    - rvm: 2.0.0
+      gemfile: Gemfile
+    - rvm: 2.1
+      gemfile: Gemfile
+    - rvm: 2.2.2
+      gemfile: gemfiles/Gemfile.ruby20.21
+    - rvm: 2.3.0
+      gemfile: gemfiles/Gemfile.ruby20.21
