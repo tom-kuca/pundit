@@ -236,7 +236,7 @@ protected
   # @param action [Symbol, String] the name of the action being performed on the record (e.g. `:update`).
   #   If omitted then this defaults to the Rails controller action name.
   # @return [Hash{String => Object}] the permitted attributes
-  def permitted_attributes(record, action = params[:action])
+  def permitted_params(record, action = params[:action])
     param_key = PolicyFinder.new(record).param_key
     policy = policy(record)
     method_name = if policy.respond_to?("permitted_attributes_for_#{action}")
