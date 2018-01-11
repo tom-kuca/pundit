@@ -2,6 +2,7 @@
 
 require "pundit/version"
 require "pundit/policy_finder"
+require "pundit/resolver"
 require "active_support/concern"
 require "active_support/core_ext/string/inflections"
 require "active_support/core_ext/object/blank"
@@ -50,71 +51,6 @@ module Pundit
 
   extend ActiveSupport::Concern
 
-  class << self
-    # Retrieves the policy for the given record, initializing it with the
-    # record and user and finally throwing an error if the user is not
-    # authorized to perform the given action.
-    #
-    # @param user [Object] the user that initiated the action
-    # @param record [Object] the object we're checking permissions of
-    # @param query [Symbol, String] the predicate method to check on the policy (e.g. `:show?`)
-    # @raise [NotAuthorizedError] if the given query method returned false
-    # @return [Object] Always returns the passed object record
-    def authorize(user, record, query)
-      policy = policy!(user, record)
-
-      unless policy.public_send(query)
-        raise NotAuthorizedError, query: query, record: record, policy: policy
-      end
-
-      record
-    end
-
-    # Retrieves the policy scope for the given record.
-    #
-    # @see https://github.com/elabs/pundit#scopes
-    # @param user [Object] the user that initiated the action
-    # @param scope [Object] the object we're retrieving the policy scope for
-    # @return [Scope{#resolve}, nil] instance of scope class which can resolve to a scope
-    def policy_scope(user, scope)
-      policy_scope = PolicyFinder.new(scope).scope
-      policy_scope.new(user, scope).resolve if policy_scope
-    end
-
-    # Retrieves the policy scope for the given record.
-    #
-    # @see https://github.com/elabs/pundit#scopes
-    # @param user [Object] the user that initiated the action
-    # @param scope [Object] the object we're retrieving the policy scope for
-    # @raise [NotDefinedError] if the policy scope cannot be found
-    # @return [Scope{#resolve}] instance of scope class which can resolve to a scope
-    def policy_scope!(user, scope)
-      PolicyFinder.new(scope).scope!.new(user, scope).resolve
-    end
-
-    # Retrieves the policy for the given record.
-    #
-    # @see https://github.com/elabs/pundit#policies
-    # @param user [Object] the user that initiated the action
-    # @param record [Object] the object we're retrieving the policy for
-    # @return [Object, nil] instance of policy class with query methods
-    def policy(user, record)
-      policy = PolicyFinder.new(record).policy
-      policy.new(user, record) if policy
-    end
-
-    # Retrieves the policy for the given record.
-    #
-    # @see https://github.com/elabs/pundit#policies
-    # @param user [Object] the user that initiated the action
-    # @param record [Object] the object we're retrieving the policy for
-    # @raise [NotDefinedError] if the policy cannot be found
-    # @return [Object] instance of policy class with query methods
-    def policy!(user, record)
-      PolicyFinder.new(record).policy!.new(user, record)
-    end
-  end
-
   # @api private
   module Helper
     def policy_scope(scope)
@@ -130,6 +66,64 @@ module Pundit
       helper_method :pundit_user
     end
   end
+
+  class << self
+    # Retrieves the policy for the given record, initializing it with the
+    # record and user and finally throwing an error if the user is not
+    # authorized to perform the given action.
+    #
+    # @param user [Object] the user that initiated the action
+    # @param record [Object] the object we're checking permissions of
+    # @param query [Symbol, String] the predicate method to check on the policy (e.g. `:show?`)
+    # @raise [NotAuthorizedError] if the given query method returned false
+    # @return [Object] Always returns the passed object record
+    def authorize(*args)
+      Resolver.new.authorize(*args)
+    end
+
+    # Retrieves the policy scope for the given record.
+    #
+    # @see https://github.com/elabs/pundit#scopes
+    # @param user [Object] the user that initiated the action
+    # @param scope [Object] the object we're retrieving the policy scope for
+    # @return [Scope{#resolve}, nil] instance of scope class which can resolve to a scope
+    def policy_scope(*args)
+      Resolver.new.policy_scope(*args)
+    end
+
+    # Retrieves the policy scope for the given record.
+    #
+    # @see https://github.com/elabs/pundit#scopes
+    # @param user [Object] the user that initiated the action
+    # @param scope [Object] the object we're retrieving the policy scope for
+    # @raise [NotDefinedError] if the policy scope cannot be found
+    # @return [Scope{#resolve}] instance of scope class which can resolve to a scope
+    def policy_scope!(user, scope)
+      Resolver.new.policy_scope!(user, scope)
+    end
+
+    # Retrieves the policy for the given record.
+    #
+    # @see https://github.com/elabs/pundit#policies
+    # @param user [Object] the user that initiated the action
+    # @param record [Object] the object we're retrieving the policy for
+    # @return [Object, nil] instance of policy class with query methods
+    def policy(user, record)
+      Resolver.new.policy(user, record)
+    end
+
+    # Retrieves the policy for the given record.
+    #
+    # @see https://github.com/elabs/pundit#policies
+    # @param user [Object] the user that initiated the action
+    # @param record [Object] the object we're retrieving the policy for
+    # @raise [NotDefinedError] if the policy cannot be found
+    # @return [Object] instance of policy class with query methods
+    def policy!(user, record)
+      Resolver.new.policy!(user, record)
+    end
+  end
+
 
 protected
 
@@ -222,7 +216,7 @@ protected
   # @param record [Object] the object we're retrieving the policy for
   # @return [Object, nil] instance of policy class with query methods
   def policy(record)
-    policies[record] ||= Pundit.policy!(pundit_user, record)
+    policies[record] ||= policy_resolver.policy!(pundit_user, record)
   end
 
   # Retrieves a set of permitted attributes from the policy by instantiating
@@ -261,6 +255,13 @@ protected
     @_pundit_policy_scopes ||= {}
   end
 
+  # Hook method which allows customizing the resolver used
+  # by {#authorize}, {#policy} and {#policy_scope}.
+  #
+  def policy_resolver
+    @policy_resolver ||= Pundit::Resolver.new
+  end
+
   # Hook method which allows customizing which user is passed to policies and
   # scopes initialized by {#authorize}, {#policy} and {#policy_scope}.
   #
@@ -273,6 +274,6 @@ protected
 private
 
   def pundit_policy_scope(scope)
-    policy_scopes[scope] ||= Pundit.policy_scope!(pundit_user, scope)
+    policy_scopes[scope] ||= policy_resolver.policy_scope!(pundit_user, scope)
   end
 end
